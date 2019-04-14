@@ -21,9 +21,9 @@ def plot_confusion_matrix(label,prediction,class_names):
     num_labels = len(class_names)
     max_value  = np.max([np.max(np.unique(label)),np.max(np.unique(label))])
     assert max_value < num_labels
-    mat,_,_,im = ax.hist2d(prediction,label,
-                          bins=(num_labels,num_labels),
-                          range=((-0.5,num_labels-0.5),(-0.5,num_labels-0.5)),cmap=plt.cm.Blues)
+    mat,_,_,im = ax.hist2d(label,prediction,
+                           bins=(num_labels,num_labels),
+                           range=((-0.5,num_labels-0.5),(-0.5,num_labels-0.5)),cmap=plt.cm.Blues)
     plt.colorbar(im, ax=ax)
     ax.set_xticks(np.arange(num_labels))
     ax.set_yticks(np.arange(num_labels))
@@ -37,7 +37,7 @@ def plot_confusion_matrix(label,prediction,class_names):
     ax.set_ylabel('True Label',fontsize=20)
     for i in range(mat.shape[0]):
         for j in range(mat.shape[1]):
-            ax.text(j, i, str(mat[i, j]),
+            ax.text(i,j, str(mat[i, j]),
                     ha="center", va="center", fontsize=16,
                     color="white" if mat[i,j] > (0.5*mat.max()) else "black")
     fig.tight_layout()
@@ -80,7 +80,8 @@ def print_memory(msg=''):
 class CSVData:
 
     def __init__(self,fout):
-        self._fout = fout
+        self.name  = fout
+        self._fout = None
         self._str  = None
         self._dict = {}
 
@@ -90,7 +91,7 @@ class CSVData:
 
     def write(self):
         if self._str is None:
-            self._fout=open(self._fout,'w')
+            self._fout=open(self.name,'w')
             self._str=''
             for i,key in enumerate(self._dict.keys()):
                 if i:
