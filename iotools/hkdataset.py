@@ -128,7 +128,7 @@ class H5Dataset(Dataset):
         import h5py
         f = h5py.File(self._files[0],mode='r')
         assert 'event_data' in f.keys()
-        assert 'labels' in f.keys()
+        #assert 'labels' in f.keys()
         self._keys = ['event_data','labels']
         for key in read_keys:
             if not key in f.keys():
