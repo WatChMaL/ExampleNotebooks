@@ -8,16 +8,16 @@ import torch.nn.functional as F
 
 class ResNetModule(torch.nn.Module):
 
-    def __init__(self, num_input, num_output, stride=1 ):
+    def __init__(self, num_input, num_output, stride=1, momentum=0.9 ):
         super(ResNetModule, self).__init__()
 
         # residual path
         self._features = torch.nn.Sequential(
             torch.nn.Conv2d(num_input, num_output, kernel_size=3, stride=stride, padding=1, bias=False),
-            torch.nn.BatchNorm2d(num_output),
+            torch.nn.BatchNorm2d(num_output,momentum=momentum),
             torch.nn.ReLU(inplace=True),
             torch.nn.Conv2d(num_output, num_output, kernel_size=3, padding=1, bias=False),
-            torch.nn.BatchNorm2d(num_output)
+            torch.nn.BatchNorm2d(num_output,momentum=momentum)
         )
 
         # if stride >1, then we need to subsamble the input
@@ -40,15 +40,15 @@ class ResNetModule(torch.nn.Module):
 
 class ResNetLayer(torch.nn.Module):
 
-    def __init__(self, num_input, num_output, num_modules, stride=1):
+    def __init__(self, num_input, num_output, num_modules, stride=1, momentum=0.9):
 
         super(ResNetLayer,self).__init__()
 
-        ops = [ ResNetModule(num_input, num_output, stride=stride) ]
+        ops = [ ResNetModule(num_input, num_output, stride=stride, momentum=momentum) ]
 
         for i in range(num_modules-1):
 
-            ops.append( ResNetModule(num_output, num_output, stride=1) )
+            ops.append( ResNetModule(num_output, num_output, stride=1, momentum=momentum) )
 
         self._layer = torch.nn.Sequential(*ops)
 
@@ -57,7 +57,7 @@ class ResNetLayer(torch.nn.Module):
 
 class ResNet(torch.nn.Module):
 
-    def __init__(self, num_class, num_input, num_output_base, blocks):
+    def __init__(self, num_class, num_input, num_output_base, blocks, bn_momentum=0.9):
         """
         Args: num_class ... integer, number of filters in the last layer
               num_input ... integer, number of channels in the input data
@@ -75,7 +75,7 @@ class ResNet(torch.nn.Module):
 
             stride = 2 if block_index > 0 else 1
 
-            self._ops.append( ResNetLayer(num_input, num_output, num_modules, stride=stride) )
+            self._ops.append( ResNetLayer(num_input, num_output, num_modules, stride=stride, momentum=bn_momentum) )
             
             # For the next layer, increase channel count by 2
             num_input  = num_output
@@ -84,6 +84,15 @@ class ResNet(torch.nn.Module):
         self._features = torch.nn.Sequential(*self._ops)
 
         self._classifier = torch.nn.Linear(num_input, num_class)
+
+
+        def weights_init(m):
+            if isinstance(m, torch.nn.Conv2d):
+                torch.nn.init.xavier_uniform_(m.weight)
+                if m.bias:
+                    #torch.nn.init.xavier_uniform(m.weight)
+                    torch.nn.init.xavier_uniform_(m.bias)
+        self._features.apply(weights_init)
 
     def forward(self,x,show_shape=False):
         

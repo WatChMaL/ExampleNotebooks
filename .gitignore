@@ -1,4 +1,5 @@
 # typical files made in repo
+snapshot*
 log
 weights
 *.txt

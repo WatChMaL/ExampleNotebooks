@@ -4,6 +4,33 @@ from __future__ import print_function
 import numpy as np
 import torch
 
+def save_state(blob, prefix='./snapshot'):
+    # Output file name
+    filename = '%s-%d.ckpt' % (prefix, blob.iteration)
+    # Save parameters
+    # 0+1) iteration counter + optimizer state => in case we want to "continue training" later
+    # 2) network weight
+    torch.save({
+        'global_step': blob.iteration,
+        'optimizer': blob.optimizer.state_dict(),
+        'state_dict': blob.net.state_dict()
+    }, filename)
+    return filename
+
+def restore_state(weight_file, blob):
+    # Open a file in read-binary mode
+    with open(weight_file, 'rb') as f:
+        # torch interprets the file, then we can access using string keys
+        checkpoint = torch.load(f)
+        # load network weights
+        blob.net.load_state_dict(checkpoint['state_dict'], strict=False)
+        # if optimizer is provided, load the state of the optimizer
+        if blob.optimizer is not None and 'optimizer' in checkpoint.keys():
+            blob.optimizer.load_state_dict(checkpoint['optimizer'])
+        # load iteration count
+        if 'global_step' in checkpoint.keys():
+            blob.iteration = checkpoint['global_step']
+
 def forward(blob,train=True):
     """
        Args: blob should have attributes, net, criterion, softmax, data, label
@@ -37,7 +64,7 @@ def backward(blob):
     blob.loss.backward()
     blob.optimizer.step()
 
-def train_loop(blob,train_epoch=2.):
+def train_loop(blob,train_epoch=2.,store_iterations=500,store_prefix='snapshot'):
     import time
     # Define train period. "epoch" = N image consumption where N is the total number of train samples.
     TRAIN_EPOCH=float(train_epoch)
@@ -48,8 +75,14 @@ def train_loop(blob,train_epoch=2.):
     test_logger  = None if not hasattr(blob,'test_log')  else blob.test_log
     train_loader = blob.train_loader
     test_loader  = None if not hasattr(blob,'test_loader') else blob.test_loader
+    # Make sure snapshot directory exists, or attempt to create
+    if '/' in store_prefix:
+        dirname = store_prefix[store_prefix.rfind('/'):]
+        if not os.path.isdir(dirname): os.makedirs(dirname)
+    # Set epoch/iteration counter if necessary
     epoch=0.
-    iteration=0
+    if not hasattr(blob,'iteration'):
+        blob.iteration = 0
     # Start training
     while int(epoch+0.5) < TRAIN_EPOCH:
         print('Epoch',int(epoch+0.5),'Starting @',time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
@@ -66,34 +99,38 @@ def train_loop(blob,train_epoch=2.):
             backward(blob)
             # Epoch update
             epoch += 1./len(train_loader)
-            iteration += 1
+            blob.iteration += 1
             
             #
             # Log/Report
             #
             # Record the current performance on train set
             if train_logger is not None:
-                blob.train_log.record(['iteration','epoch','accuracy','loss'],[iteration,epoch,res['accuracy'],res['loss']])
+                blob.train_log.record(['blob.iteration','epoch','accuracy','loss'],[blob.iteration,epoch,res['accuracy'],res['loss']])
                 blob.train_log.write()
             # once in a while, report
-            if i==0 or (i+1)%10 == 0:
-                message = '... Iteration %d ... Epoch %1.2f ... Loss %1.3f ... Accuracy %1.3f' % (iteration,epoch,res['loss'],res['accuracy'])
+            if blob.iteration==1 or blob.iteration%10 == 0:
+                message = '... Iteration %d ... Epoch %1.2f ... Loss %1.3f ... Accuracy %1.3f' % (blob.iteration,epoch,res['loss'],res['accuracy'])
                 progress.update(progress_bar((i+1),len(train_loader),message))
-                # more rarely, run validation
-            if test_loader is not None and (i+1)%100 == 0:
+            # more rarely, run validation
+            if test_loader is not None and blob.iteration%100 == 0:
                 with torch.no_grad():
                     blob.net.eval()
                     test_data = next(iter(test_loader))
                     blob.data,blob.label = test_data[0:2]
                     res = forward(blob,False)
                     if test_logger is not None:
-                        blob.test_log.record(['iteration','epoch','accuracy','loss'],[iteration,epoch,res['accuracy'],res['loss']])
+                        blob.test_log.record(['iteration','epoch','accuracy','loss'],[blob.iteration,epoch,res['accuracy'],res['loss']])
                         blob.test_log.write()
                 blob.net.train()
+            # store weights
+            if blob.iteration%store_iterations == 0:
+                fname = store_prefix + '-%07d' % blob.iteration
+                save_state(blob,fname)
             if epoch >= TRAIN_EPOCH:
                 break
-        message = '... Iteration %d ... Epoch %1.2f ... Loss %1.3f ... Accuracy %1.3f' % (iteration,epoch,res['loss'],res['accuracy'])
-        progress.update(progress_bar((i+1),len(train_loader),message))
+        message = '... Iteration %d ... Epoch %1.2f ... Loss %1.3f ... Accuracy %1.3f' % (blob.iteration,epoch,res['loss'],res['accuracy'])
+        progress.update(progress_bar(len(train_loader),len(train_loader),message))
         
     if test_logger is not None: test_logger.close()
     if train_logger is not None: train_logger.close()
@@ -168,4 +205,4 @@ def inference(blob,data_loader):
     label      = np.hstack(label)
     prediction = np.hstack(prediction)        
     return accuracy, label, prediction
-    
+
